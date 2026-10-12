@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Template for a per-user LaunchAgent. Copy to ~/Library/LaunchAgents/ and replace
+  the placeholders (REPO_PATH, FOLDER_1, FOLDER_2). See the README for details.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>local.jotta-album-creator</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>REPO_PATH/run.sh</string>
+        <!-- One <string> per folder; add or delete lines as needed. Folder names are
+             written as-is (spaces are fine); escape & as &amp; and < as &lt;. -->
+        <string>FOLDER_1</string>
+        <string>FOLDER_2</string>
+    </array>
+
+    <!-- Every day at 03:00. If the Mac is asleep, launchd runs the job on wake. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- launchd starts jobs with a minimal PATH; add where your python3 lives. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <!-- run.sh logs to ~/Library/Logs/jotta-album-creator.log; this catches anything else. -->
+    <key>StandardErrorPath</key>
+    <string>/tmp/jotta-album-creator.launchd.err</string>
+</dict>
+</plist>
