@@ -23,7 +23,9 @@ LOG="${JOTTA_ALBUM_LOG:-$HOME/Library/Logs/jotta-album-creator.log}"
 LOCK="${TMPDIR:-/tmp}/jotta-album-creator.lock"
 
 mkdir -p "$(dirname "$LOG")"
-log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
+timestamp() { date '+%Y-%m-%d %H:%M:%S'; }
+log() { echo "$(timestamp)  $*" >> "$LOG"; }
+RULE="================================================================"
 
 # mkdir is atomic. A lock is stale if its owner pid is dead. If the pid file is
 # missing the owner may be between mkdir and writing it, so only call that stale
@@ -48,7 +50,7 @@ acquire_lock() {
 }
 
 if ! acquire_lock; then
-    log "another run is in progress, exiting"
+    log "RUN SKIPPED: another run is in progress"
     exit 0
 fi
 echo $$ > "$LOCK/pid"
@@ -59,13 +61,18 @@ if [ -f "$LOG" ] && [ "$(stat -f %z "$LOG")" -gt 1048576 ]; then
     mv "$LOG" "$LOG.1"
 fi
 
+# Each run is framed by a banner so runs are easy to tell apart in the log.
+{ echo; echo "$RULE"; echo "$(timestamp)  RUN START  (pid $$, $# folder(s))"; echo "$RULE"; } >> "$LOG"
+
 # Process every folder in turn; a failure in one doesn't stop the others.
+# The script's output is streamed into the log with a timestamp on every line.
 STATUS=0
 FAILED=0
 for FOLDER in "$@"; do
     log "start: $FOLDER"
-    "$PYTHON" -u "$DIR/create_albums.py" "$FOLDER" --apply --quiet >> "$LOG" 2>&1
-    CODE=$?
+    "$PYTHON" -u "$DIR/create_albums.py" "$FOLDER" --apply --quiet 2>&1 |
+        while IFS= read -r LINE; do echo "$(timestamp)    $LINE"; done >> "$LOG"
+    CODE=${PIPESTATUS[0]}
     if [ $CODE -ne 0 ]; then
         log "FAILED with exit code $CODE: $FOLDER"
         FAILED=$((FAILED + 1))
@@ -74,6 +81,9 @@ for FOLDER in "$@"; do
         log "done: $FOLDER"
     fi
 done
+
+if [ $FAILED -eq 0 ]; then RESULT="OK"; else RESULT="FAILED ($FAILED of $# folder(s))"; fi
+{ echo "$(timestamp)  RUN END: $RESULT, took ${SECONDS}s"; echo "$RULE"; } >> "$LOG"
 
 if [ $FAILED -ne 0 ]; then
     osascript -e "display notification \"$FAILED of $# folder(s) failed. See ~/Library/Logs/jotta-album-creator.log\" with title \"jotta-album-creator failed\"" >/dev/null 2>&1

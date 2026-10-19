@@ -114,12 +114,41 @@ def list_folder(username, path):
 
 
 def empty_rules():
-    return {"include": [], "exclude": [], "merge": [], "skip": False}
+    return {"include": [], "exclude": [], "merge": [], "skip": False, "skip_files": []}
+
+
+def drop_skipped_files(files, rules):
+    """Remove files whose name matches a 'skip <glob>' rule. Returns (kept, number dropped)."""
+    if not rules["skip_files"]:
+        return files, 0
+    patterns = [p.lower() for p in rules["skip_files"]]
+    kept = [(n, m) for n, m in files if not any(fnmatch.fnmatchcase(n.lower(), p) for p in patterns)]
+    return kept, len(files) - len(kept)
+
+
+def drop_root_skipped_files(files, folder, root_rules):
+    """Apply 'skip <glob>' rules from the root folder's file to an album folder's files.
+
+    A pattern containing '/' is matched against the path below the root ("Folder/File.jpg",
+    "Folder/Day 1/File.jpg" for merged files); one without is matched against the file name.
+    Returns (kept, number dropped).
+    """
+    patterns = [p.lower() for p in root_rules["skip_files"]]
+    if not patterns:
+        return files, 0
+
+    def skipped(name):
+        full = f"{folder}/{name}".lower()
+        base = name.rsplit("/", 1)[-1].lower()
+        return any(fnmatch.fnmatchcase(full if "/" in p else base, p) for p in patterns)
+
+    kept = [(n, m) for n, m in files if not skipped(n)]
+    return kept, len(files) - len(kept)
 
 
 def parse_rules(text, source):
-    """Parse a CONFIG_NAME file: 'include <glob>', 'exclude <glob>', 'merge <glob>', 'skip';
-    '#' starts a comment."""
+    """Parse a CONFIG_NAME file: 'include <glob>', 'exclude <glob>', 'merge <glob>', 'skip',
+    'skip <file glob>'; '#' starts a comment."""
     rules = empty_rules()
     for number, raw in enumerate(text.splitlines(), 1):
         line = raw.strip()
@@ -129,6 +158,8 @@ def parse_rules(text, source):
         argument = argument.strip()
         if directive == "skip" and not argument:
             rules["skip"] = True
+        elif directive == "skip":
+            rules["skip_files"].append(argument)
         elif directive in ("include", "exclude", "merge") and argument:
             rules[directive].append(argument)
         else:
@@ -154,7 +185,7 @@ def merge_nested(username, path, nested, rules, prefix=""):
     merged folder with 'skip' is left out. Returns (files with names relative to the album
     folder, labels of merged folders, labels of nested folders left out).
     """
-    files, merged, ignored = [], [], []
+    files, merged, ignored, skipped_files = [], [], [], 0
     for sub in nested:
         label = f"{prefix}{sub}"
         if not any(fnmatch.fnmatchcase(sub.lower(), p.lower()) for p in rules["merge"]):
@@ -167,12 +198,15 @@ def merge_nested(username, path, nested, rules, prefix=""):
             ignored.append(f"{label} ('skip')")
             continue
         merged.append(label)
+        sub_files, dropped = drop_skipped_files(sub_files, sub_rules)
+        skipped_files += dropped
         files += [(f"{label}/{fname}", md5) for fname, md5 in sub_files]
         deeper = merge_nested(username, sub_path, sub_nested, sub_rules, f"{label}/")
         files += deeper[0]
         merged += deeper[1]
         ignored += deeper[2]
-    return files, merged, ignored
+        skipped_files += deeper[3]
+    return files, merged, ignored, skipped_files
 
 
 def exclusion_reason(name, rules):
@@ -302,7 +336,7 @@ def add_photos_skip_unknown(album_id, md5s):
                 + add_photos_skip_unknown(album_id, md5s[mid:]))
 
 
-def sync_folder(username, root, name, albums, apply):
+def sync_folder(username, root, name, albums, apply, root_rules):
     """Handle one subfolder.
 
     Returns (output lines, notable, problem, skips): problem is a reason string or None,
@@ -315,11 +349,16 @@ def sync_folder(username, root, name, albums, apply):
         reason = f"'skip' in {CONFIG_NAME}"
         return ([f"- {paint(name, BOLD)}", paint(f"  skipped: {reason}", DIM)],
                 False, None, [reason], [])
-    extra, merged, ignored = merge_nested(username, path, nested, rules)
+    files, skipped_files = drop_skipped_files(files, rules)
+    extra, merged, ignored, merged_skipped = merge_nested(username, path, nested, rules)
     files += extra
+    skipped_files += merged_skipped
+    files, dropped = drop_root_skipped_files(files, name, root_rules)
+    skipped_files += dropped
     lines = [f"- {paint(name, BOLD)}: {len(files)} media files"
              + (f", merged {len(merged)} nested folder(s)" if merged else "")
              + (f", {len(ignored)} nested folders skipped" if ignored else "")
+             + (f", {skipped_files} file(s) skipped by rule" if skipped_files else "")
              + (f", {other} other files ignored" if other else "")]
     if merged:
         lines.append(paint(f"  merged: {', '.join(merged)}", DIM))
@@ -401,6 +440,9 @@ def main():
     if rules["merge"]:
         raise ConfigError(f"{root}/{CONFIG_NAME}: 'merge' belongs in the file of an album folder, "
                           "not in the folder you run the tool on")
+    if rules["skip"]:
+        raise ConfigError(f"{root}/{CONFIG_NAME}: a bare 'skip' belongs in the file of an album folder; "
+                          "in the folder you run the tool on, use 'skip <Folder/File.jpg>' for single files")
     albums = existing_albums()
     if not args.quiet:
         mode = paint("APPLY", BOLD, RED) if args.apply else paint("DRY RUN", BOLD, CYAN)
@@ -415,7 +457,7 @@ def main():
                 print(f"- {paint(name, BOLD)}\n" + paint(f"  skipped: {reason}", DIM))
             continue
         try:
-            lines, notable, problem, skips, warnings = sync_folder(username, root, name, albums, args.apply)
+            lines, notable, problem, skips, warnings = sync_folder(username, root, name, albums, args.apply, rules)
         except ApiError as e:
             lines = [f"- {paint(name, BOLD)}", paint(f"  ERROR: {e}", RED)]
             notable, problem, skips, warnings = True, str(e), [], []

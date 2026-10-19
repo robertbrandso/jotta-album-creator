@@ -102,6 +102,27 @@ include 2021-*
 skip
 ```
 
+To leave out single files instead (for example photos Jottacloud Photos doesn't accept, which would otherwise be reported as a warning on every run), give `skip` a file name pattern. The files stay where they are; they just aren't added to the album:
+
+```
+# Pictures/2010-07 - Holiday/.jotta-album-creator
+skip Bilde10.jpg
+skip Photo (*).jpg
+```
+
+Patterns are case-insensitive globs matched against the file name, and a folder can have several `skip` lines. A bare `skip` still skips the whole folder. In a merged nested folder, its own `.jotta-album-creator` file applies to its files.
+
+`skip` lines also work in the file of the folder you run the tool on, where a pattern containing `/` is matched against the path below that folder, so you can list files from several albums in one place:
+
+```
+# Pictures/.jotta-album-creator
+skip 2010-07 - Holiday/Photo10.jpg
+skip 2015-07 - Summer 2015/Day 1/IMG_0042.jpg
+skip Thumbs.db
+```
+
+A pattern with a `/` is matched against the whole path (`Folder/File.jpg`, or `Folder/Subfolder/File.jpg` for merged files). A pattern without `/` matches that file name in every folder. In this file a bare `skip` is an error, since it would mean skipping everything.
+
 **Including nested folders in the parent's album.** By default only the files directly inside an album folder are used, and nested folders are skipped. To put the photos of a nested folder in the album of the folder it sits in, add `merge` lines to the `.jotta-album-creator` file of the album folder:
 
 ```
