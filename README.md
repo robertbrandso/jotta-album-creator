@@ -118,7 +118,6 @@ Patterns are case-insensitive globs matched against the file name, and a folder 
 # Pictures/.jotta-album-creator
 skip 2010-07 - Holiday/Photo10.jpg
 skip 2015-07 - Summer 2015/Day 1/IMG_0042.jpg
-skip Thumbs.db
 ```
 
 A pattern with a `/` is matched against the whole path (`Folder/File.jpg`, or `Folder/Subfolder/File.jpg` for merged files). A pattern without `/` matches that file name in every folder. In this file a bare `skip` is an error, since it would mean skipping everything.
